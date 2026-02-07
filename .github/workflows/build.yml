@@ -1,0 +1,239 @@
+name: Build
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+  schedule:
+    - cron: '0 5 * * *'  # Runs at 05:00 UTC
+    - cron: '0 17 * * *' # Runs at 1:00 UTC
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - uses: smorimoto/tune-github-hosted-runner-network@v1
+        # https://github.com/actions/runner-images/issues/1187
+      - uses: actions/checkout@v5
+        with:
+          repository: SukkaW/Surge
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ".node-version"
+          cache: "pnpm"
+      - name: Grab Building Folder
+        id: ramdisk
+        run: |
+          echo "build_dir=previous-build-${{ github.run_id }}-${{ github.run_number }}" >> $GITHUB_OUTPUT
+      - name: Download Previous Build
+        uses: actions/checkout@v5
+        with:
+          repository: SukkaLab/ruleset.skk.moe
+          persist-credentials: false
+          filter: "tree:0" # we don't care about git history here
+          fetch-tags: false
+          path: ${{ steps.ramdisk.outputs.build_dir }}
+      - name: Setup build folder
+        run: |
+          if [ ! -d ${{ steps.ramdisk.outputs.build_dir }}/.git ]; then
+            echo ".git not found"
+            exit 1
+          fi
+          rm -rf "${{ steps.ramdisk.outputs.build_dir }}/.git"
+
+          if [ ! -d ${{ steps.ramdisk.outputs.build_dir }}/List ]; then
+            echo "List not found"
+            exit 1
+          fi
+          echo "public directory is ready: ${{ steps.ramdisk.outputs.build_dir }}"
+      - name: Get current date
+        id: date
+        run: |
+          echo "date=$(date +'%Y-%m-%d %H:%M:%S')" >> $GITHUB_OUTPUT
+          echo "year=$(date +'%Y')" >> $GITHUB_OUTPUT
+          echo "month=$(date +'%m')" >> $GITHUB_OUTPUT
+          echo "day=$(date +'%d')" >> $GITHUB_OUTPUT
+          echo "hour=$(date +'%H')" >> $GITHUB_OUTPUT
+          echo "minute=$(date +'%M')" >> $GITHUB_OUTPUT
+          echo "second=$(date +'%S')" >> $GITHUB_OUTPUT
+      - name: Restore cache.db
+        uses: actions/cache/restore@v4
+        id: cache-db-restore
+        with:
+          path: |
+            .cache
+          key: ${{ runner.os }}-v3-${{ steps.date.outputs.year }}-${{ steps.date.outputs.month }}-${{ steps.date.outputs.day }} ${{ steps.date.outputs.hour }}:${{ steps.date.outputs.minute }}:${{ steps.date.outputs.second }}
+          # If source files changed but packages didn't, rebuild from a prior cache.
+          restore-keys: |
+            ${{ runner.os }}-v3-${{ steps.date.outputs.year }}-${{ steps.date.outputs.month }}-${{ steps.date.outputs.day }} ${{ steps.date.outputs.hour }}:${{ steps.date.outputs.minute }}:
+            ${{ runner.os }}-v3-${{ steps.date.outputs.year }}-${{ steps.date.outputs.month }}-${{ steps.date.outputs.day }} ${{ steps.date.outputs.hour }}:
+            ${{ runner.os }}-v3-${{ steps.date.outputs.year }}-${{ steps.date.outputs.month }}-${{ steps.date.outputs.day }}
+            ${{ runner.os }}-v3-${{ steps.date.outputs.year }}-${{ steps.date.outputs.month }}-
+            ${{ runner.os }}-v3-${{ steps.date.outputs.year }}-
+            ${{ runner.os }}-v3-
+      - run: pnpm install
+      - name: Add domains
+        run: |
+          echo "cloudflaremirrors.com" >> Source/domainset/cdn.conf
+          echo "kali.download" >> Source/domainset/cdn.conf
+          echo "DOMAIN,perfops2.byte-test.com" >> Source/non_ip/global.conf
+      - name: Update domains
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+
+          RULES_JSON = r'''
+          [
+            {
+              "old": "'bilibili.com',",
+              "new": "",
+              "file": "Source/non_ip/domestic.ts"
+            },
+            {
+              "old": "'DOMAIN-SUFFIX,bilibili.tv'",
+              "new": "'DOMAIN-SUFFIX,bilibili.com','DOMAIN-SUFFIX,bilibili.tv'",
+              "file": "Source/stream.ts"
+            },
+            {
+              "old": "TW: StreamService[] = [",
+              "new": "TW: StreamService[] = [ BILIBILI_INTL,",
+              "file": "Source/stream.ts"
+            },
+            {
+              "old": "PREDEFINED_WHITELIST = [",
+              "new": "PREDEFINED_WHITELIST = ['itad.linetv.tw',",
+              "file": "Build/constants/reject-data-source.ts"
+            }
+          ]
+          '''
+
+          def load(path: str) -> tuple[Path, str]:
+              p = Path(path)
+              if not p.exists():
+                  raise SystemExit(f"{path} not found")
+              return p, p.read_text()
+
+          def replace_substring(text: str, old: str, new: str) -> tuple[str, int]:
+              if old not in text:
+                  return text, 0
+              if new == "":
+                  return text.replace(old, ""), 1
+              return text.replace(old, new, 1), 1
+
+          changed = False
+          rules = json.loads(RULES_JSON)
+
+          for rule in rules:
+              path = rule["file"]
+              old = rule["old"]
+              new = rule["new"]
+              p, text = load(path)
+              if new != "" and new in text and old not in text:
+                  continue
+              new_text, count = replace_substring(text, old, new)
+              if count == 0:
+                  raise SystemExit(f"old string not found in {path}: {old}")
+              if new_text != text:
+                  p.write_text(new_text)
+                  changed = True
+
+          if changed:
+              print("Rule updates applied.")
+          else:
+              print("No rule updates needed.")
+          PY
+      - run: pnpm run build
+        env:
+          PUBLIC_DIR: ${{ steps.ramdisk.outputs.build_dir }}
+      - name: Install sing-box
+        run: |
+          curl -fsSL https://sing-box.app/install.sh | sudo sh
+          sing-box version
+        shell: bash
+      - name: Compile sing-box rule-sets
+        run: |
+          find "${{ steps.ramdisk.outputs.build_dir }}/sing-box" -type f -name '*.json' -print0 | while IFS= read -r -d '' file; do
+            sing-box rule-set compile --output "${file%.json}.srs" "$file"
+          done
+        shell: bash
+      - name: Pre-deploy check
+        # If the public directory doesn't exist, the build should fail.
+        # If the public directory is empty, the build should fail.
+        run: |
+          if [ ! -d ${{ steps.ramdisk.outputs.build_dir }} ]; then
+            echo "public directory not found"
+            exit 1
+          fi
+          if [ ! "$(ls -A ${{ steps.ramdisk.outputs.build_dir }})" ]; then
+            echo "public directory is empty"
+            exit 1
+          fi
+          if [ ! -f .BUILD_FINISHED ]; then
+            echo ".BUILD_FINISHED not found"
+            exit 1
+          fi
+          echo "public directory is ready: ${{ steps.ramdisk.outputs.build_dir }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-artifact-${{ github.sha }}-${{ github.run_number }}
+          path: ${{ steps.ramdisk.outputs.build_dir }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 4
+          include-hidden-files: false
+      - name: Cache cache.db
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .cache
+          key: ${{ runner.os }}-v3-${{ steps.date.outputs.year }}-${{ steps.date.outputs.month }}-${{ steps.date.outputs.day }} ${{ steps.date.outputs.hour }}:${{ steps.date.outputs.minute }}:${{ steps.date.outputs.second }}
+
+  deploy_to_github:
+    needs:
+      - build
+    name: Deploy to GitHub
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-artifact-${{ github.sha }}-${{ github.run_number }}
+          path: public
+      - name: Upload Dist to GitHub
+        continue-on-error: true
+        run: |
+          cd public
+          git init
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b release
+          git add --all .
+          git commit -m "deploy: https://github.com/SukkaW/Surge/commit/${GITHUB_SHA}"
+          git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}"
+          git push -f -u origin release
+
+  remove_artifacts:
+    needs:
+      - deploy_to_github
+    name: Remove Artifacts after Deployment
+    runs-on: ubuntu-slim
+    steps:
+      - uses: geekyeggo/delete-artifact@v5
+        with:
+          name: build-artifact-${{ github.sha }}-${{ github.run_number }}
