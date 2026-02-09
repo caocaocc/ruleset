@@ -91,6 +91,7 @@ jobs:
           echo "cloudflaremirrors.com" >> Source/domainset/cdn.conf
           echo "kali.download" >> Source/domainset/cdn.conf
           echo "DOMAIN,perfops2.byte-test.com" >> Source/non_ip/global.conf
+          echo "DOMAIN,perfops.byte-test.com" >> Source/non_ip/domestic.conf
       - name: Update domains
         run: |
           python - <<'PY'
