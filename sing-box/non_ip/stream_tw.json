@@ -1,0 +1,52 @@
+{
+  "version": 2,
+  "rules": [
+    {
+      "domain": [
+        "7h15.ru1353t.1s.m4d3.by.5ukk4w.skk.moe",
+        "www.litv.tv",
+        "cdi.ofiii.com",
+        "video.friday.tw",
+        "ana.video.friday.tw",
+        "hbolb.onwardsmg.com",
+        "apm-misaka.biliapi.net",
+        "players.brightcove.net",
+        "gamer-cds.cdn.hinet.net",
+        "gamer2-cds.cdn.hinet.net",
+        "manifest.prod.boltdns.net",
+        "hbounify-prod.evergent.com",
+        "ntdfreepc-tgc.cdn.hinet.net",
+        "d3c7rimkq79yfu.cloudfront.net",
+        "4gtvfreepcvod-cds.cdn.hinet.net",
+        "upos-bstar-mirrorakam.akamaized.net",
+        "upos-bstar1-mirrorakam.akamaized.net",
+        "litvfreemobile-hichannel.cdn.hinet.net",
+        "44wilhpljf.execute-api.ap-southeast-1.amazonaws.com"
+      ],
+      "domain_suffix": [
+        "7h15.ru1353t.1s.m4d3.by.5ukk4w.skk.moe",
+        "4gtv.tv",
+        "kktv.me",
+        "kk.stream",
+        "linetv.tw",
+        "fanfox.net",
+        "bilibili.tv",
+        "hboasia.com",
+        "kktv.com.tw",
+        "mangafox.me",
+        "viblast.com",
+        "bilibili.com",
+        "biliintl.com",
+        "hbogoasia.hk",
+        "hbogoasia.id",
+        "hbogoasia.ph",
+        "hbogoasia.sg",
+        "hbogoasia.tw",
+        "hbogoasia.com",
+        "bahamut.com.tw",
+        "ani.gamer.com.tw",
+        "api.gamer.com.tw"
+      ]
+    }
+  ]
+}
